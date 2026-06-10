@@ -1,6 +1,6 @@
 # mobile-soc-power-modeling
 
-Measurement and modeling pipeline accompanying the paper **"Fine-Grained Hybrid Power Modeling for On-Device Computing on Multi-Cluster SoCs"**, published in *Sustainable Computing: Informatics and Systems*.
+Measurement and modeling pipeline accompanying the paper **"Fine-Grained Hybrid Power Modeling for On-Device Computing on Multi-Cluster SoCs"**, submitted in *Sustainable Computing: Informatics and Systems*.
 
 Tested on Google Pixel 8 Pro (Tensor G3) and Pixel 9 (Tensor G4).
 
