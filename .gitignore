@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+
+# Generated outputs — reproducible from scripts
+data/**/plots/
+throttling_data/
+
+# Old / unused data — not part of reproducible pipeline
+**/unused/
+**/old/
+**/initial/
+**/pinned/
+**/unplugged/
+**/upgraded/
