@@ -220,3 +220,78 @@ sample_loop() {
 
   log_ok "Collected $n samples"
 }
+
+# Apply two post-collection quality filters to a completed CSV file.
+#
+# (1) CV filter  — exclude rows whose trailing window has stddev/mean > cv_max.
+#     A coefficient of variation above 2 % indicates the measurement epoch is
+#     still in a thermal or power transient rather than steady-state.
+#
+# (2) Spike filter — exclude isolated single-sample deviations > spike_pct from
+#     the local-neighbour median, but only when those neighbours are themselves
+#     stable (their own CV < spike_pct).  Sustained multi-sample shifts (e.g.
+#     throttling onset) satisfy neither condition and are retained.
+#
+# Usage: filter_csv_quality <csv> [window=10] [cv_max=0.02] [spike_pct=0.10] [half_win=2]
+# The file is overwritten in place; the header row is always preserved.
+filter_csv_quality() {
+  _csv="$1"
+  _win="${2:-10}"     # trailing window width for CV test (samples)
+  _cv="${3:-0.02}"    # CV threshold — fraction, not percent (0.02 = 2%)
+  _sp="${4:-0.10}"    # spike deviation threshold — fraction (0.10 = 10%)
+  _hw="${5:-2}"       # half-window radius for neighbour comparison
+
+  [ -f "$_csv" ] || { log_warn "filter_csv_quality: $_csv not found"; return 1; }
+
+  _tmp=$(mktemp)
+  awk -v W="$_win" -v CV_MAX="$_cv" -v SPIKE="$_sp" -v HW="$_hw" -v COL=13 '
+  BEGIN { FS = OFS = "," }
+
+  NR == 1 { hdr = $0; next }
+
+  { line[NR] = $0; v[NR] = $COL + 0 }
+
+  END {
+    printf "%s\n", hdr
+    n  = NR
+    kept = 0; drop_cv = 0; drop_sp = 0
+
+    for (i = 2; i <= n; i++) {
+
+      # --- (1) CV filter: trailing window [lo..i] ---
+      lo = i - W + 1; if (lo < 2) lo = 2
+      s = 0; s2 = 0; cnt = 0
+      for (k = lo; k <= i; k++) { s += v[k]; s2 += v[k]^2; cnt++ }
+      if (cnt == W) {
+        mn  = s / cnt
+        var = (s2 / cnt) - mn * mn; if (var < 0) var = 0
+        cv  = (mn > 0) ? sqrt(var) / mn : 0
+        if (cv > CV_MAX) { drop_cv++; continue }
+      }
+
+      # --- (2) Isolated-spike filter: symmetric neighbourhood ---
+      nlo = i - HW; if (nlo < 2) nlo = 2
+      nhi = i + HW; if (nhi > n) nhi = n
+      ns = 0; ns2 = 0; nc = 0
+      for (k = nlo; k <= nhi; k++) {
+        if (k == i) continue
+        ns += v[k]; ns2 += v[k]^2; nc++
+      }
+      if (nc >= 2) {
+        nm   = ns / nc
+        nvar = (ns2 / nc) - nm * nm; if (nvar < 0) nvar = 0
+        ncv  = (nm > 0) ? sqrt(nvar) / nm : 0
+        dev  = (nm > 0) ? (v[i] - nm) / nm : 0
+        if (dev < 0) dev = -dev
+        # Spike: large deviation from stable neighbours
+        if (dev > SPIKE && ncv < SPIKE) { drop_sp++; continue }
+      }
+
+      print line[i]; kept++
+    }
+
+    printf "[filter_csv_quality] kept=%d  dropped_cv=%d  dropped_spike=%d\n",
+           kept, drop_cv, drop_sp > "/dev/stderr"
+  }
+  ' "$_csv" > "$_tmp" && mv "$_tmp" "$_csv" || { rm -f "$_tmp"; return 1; }
+}

@@ -438,6 +438,72 @@ def plot_term_decomposition(df, alphas, P0, T0, out):
 
 
 # ---------------------------------------------------------------------------
+# Measurement quality filters
+# ---------------------------------------------------------------------------
+
+def filter_stable_windows(df: pd.DataFrame, col: str = "measured_W",
+                          window: int = 10, cv_threshold: float = 0.02) -> pd.DataFrame:
+    """
+    Exclude samples where the trailing coefficient of variation (std / mean)
+    over `window` rows exceeds `cv_threshold`.  A CV above 2 % signals that
+    the measurement epoch has not yet reached steady-state — the chip is still
+    in a thermal or power transient.  Rows near the start of a group where the
+    full window is not yet available retain their NaN CV and are kept.
+    """
+    rolling = df[col].rolling(window=window, min_periods=window)
+    cv = rolling.std() / rolling.mean().abs()
+    mask = cv.isna() | (cv <= cv_threshold)
+    n_before = len(df)
+    out = df[mask].copy()
+    print(f"  CV filter (window={window}, CV ≤ {cv_threshold:.0%}): "
+          f"{n_before} → {len(out)} rows  (dropped {n_before - len(out)})")
+    return out
+
+
+def remove_isolated_spikes(df: pd.DataFrame, col: str = "measured_W",
+                           half_win: int = 2, threshold: float = 0.10) -> pd.DataFrame:
+    """
+    Remove isolated single-sample spikes while preserving sustained shifts.
+
+    For each sample x_i, the symmetric neighbourhood [i-half_win, i+half_win]
+    (excluding x_i itself) is used to compute:
+        local_median — robust centre of the neighbourhood
+        local_cv     — coefficient of variation of those neighbours
+
+    A sample is flagged as an isolated spike and dropped when both hold:
+        (a) |x_i - local_median| / local_median > threshold  (outlying value)
+        (b) local_cv < threshold                              (neighbours stable)
+
+    Condition (b) is the discriminator: if neighbours are themselves dispersed
+    — as during throttling onset where power drops across several consecutive
+    samples — both the candidate and its surroundings are in motion, so the
+    point belongs to a genuine sustained shift and is retained.
+    """
+    x = df[col].to_numpy()
+    n = len(x)
+    spike = np.zeros(n, dtype=bool)
+
+    for i in range(n):
+        lo = max(0, i - half_win)
+        hi = min(n, i + half_win + 1)
+        neighbors = np.concatenate([x[lo:i], x[i + 1:hi]])
+        if len(neighbors) < 2:
+            continue
+        local_med = float(np.median(neighbors))
+        if local_med == 0:
+            continue
+        local_cv = float(neighbors.std()) / abs(local_med)
+        dev = abs(x[i] - local_med) / abs(local_med)
+        if dev > threshold and local_cv < threshold:
+            spike[i] = True
+
+    out = df[~spike].copy()
+    print(f"  Spike filter (half_win={half_win}, threshold={threshold:.0%}): "
+          f"removed {int(spike.sum())}/{len(df)} samples")
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -493,6 +559,16 @@ def main():
     print_temp_distribution(pre_all, "Pre-throttle")
     if len(post_all) > 0:
         print_temp_distribution(post_all, "Post-throttle")
+
+    # ── Measurement quality filters ───────────────────────────────────────────
+    print("\nApplying measurement quality filters...")
+    p2      = filter_stable_windows(p2)
+    p2      = remove_isolated_spikes(p2)
+    pre_all = filter_stable_windows(pre_all)
+    pre_all = remove_isolated_spikes(pre_all)
+    if len(post_all) > 0:
+        post_all = filter_stable_windows(post_all)
+        post_all = remove_isolated_spikes(post_all)
 
     # ── Pool and split ────────────────────────────────────────────────────────
     pre_train, pre_test = stratified_split(pre_all, TRAIN_FRAC, seed)

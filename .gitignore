@@ -26,3 +26,7 @@ throttling_data/
 **/pinned/
 **/unplugged/
 **/upgraded/
+
+model_necessity.py
+model_necessity_high_res.pdf
+model_necessity_high_res.png

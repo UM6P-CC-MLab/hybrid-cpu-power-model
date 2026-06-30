@@ -144,6 +144,7 @@ for triple in $CONFIGS; do
                 "$fL" "$fB" "$fP" "$csv"
 
     stop_stress
+    filter_csv_quality "$csv"
     log_ok "Finished rep $rep of $NUM_REPS for $config_id (idle+stress)"
     rep=$((rep + 1))
   done
