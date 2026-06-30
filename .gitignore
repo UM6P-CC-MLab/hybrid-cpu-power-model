@@ -30,3 +30,5 @@ throttling_data/
 model_necessity.py
 model_necessity_high_res.pdf
 model_necessity_high_res.png
+fix_paths.bash
+reorganize.bash
